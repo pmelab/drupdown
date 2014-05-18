@@ -1,0 +1,6 @@
+name = Drupdown
+description = Drupal flavored Markdown input filter.
+package = "Drupdown"
+core = 7.x
+dependencies[] = simplehtmldom
+files[] = drupdown.module

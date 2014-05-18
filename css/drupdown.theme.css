@@ -1,0 +1,86 @@
+
+/* Figure base styles. */
+.drupdown-figure {
+  background: #EEE;
+  padding: 0.5em;
+  margin: 0.5em;
+}
+
+.drupdown-figure p {
+  margin-bottom: 0;
+}
+
+.drupdown-figure-caption {
+  text-align: center;
+  clear: both;
+}
+
+/* Inline link previews */
+.drupdown-broken-link {
+  border: 1px dotted red;
+}
+
+.drupdown-link-embed:after {
+  content: '';
+  display: block;
+  clear: both;
+}
+
+.drupdown-link-embed .drupdown-link-image {
+  display: block;
+  width: 8em;
+  float: left;
+}
+
+.drupdown-link-embed .drupdown-link-image img {
+  display: block;
+  width: 100%;
+}
+
+.drupdown-link-embed .drupdown-link-description {
+  margin-left: 9em;
+
+}
+
+.drupdown-link-embed h2 {
+  margin: 0;
+}
+
+.drupdown-link-embed .drupdown-link-domain {
+  display: block;
+  margin-bottom: 0.5em;
+}
+
+
+/* Images */
+.drupdown-figure.drupdown-image {
+  text-align: center;
+  /* width: 14em; */
+}
+
+.drupdown-figure.drupdown-image img {
+  max-width: 100%;
+  /* max-height: 14em; */
+}
+
+/* galleries */
+.drupdown-gallery ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.drupdown-gallery ul li {
+  display: inline;
+  margin: 0;
+  padding: 0;
+}
+
+.drupdown-gallery img {
+  width: 70px;
+  height: 70px;
+}
+
+/* oEmbeds */
+.drupdown-oembed iframe {
+  width: 100%;
+}

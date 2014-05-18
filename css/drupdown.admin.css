@@ -1,0 +1,16 @@
+#drupdown-playground-output .formatted-output {
+  margin-top: 2em;
+  border: 2px dashed gray;
+  padding: 1em;
+}
+
+#edit-drupdown-codemirror-embeds .form-item {
+  float: left;
+  width: 330px;
+}
+
+#edit-drupdown-codemirror-embeds:after {
+  content: '';
+  display: block;
+  clear: both;
+}

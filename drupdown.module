@@ -1,0 +1,379 @@
+<?php
+/**
+ * @file
+ * Main drupdown implementation file.
+ */
+
+// TODO: Fix nesting elements in links.
+$nb = str_repeat('(?>[^\[\]]+|\[', 6) . str_repeat('\])*', 6);
+$np = str_repeat('(?>[^()\s]+|\(', 4) . str_repeat('(?>\)))*', 4);
+$nb = ".*";
+$np = ".*";
+
+define('DRUPDOWN_LINK_REGEX', implode('', array(
+  '\[(?<alt>' . $nb . '?)\]',
+  '(',
+    '(\(',
+      '(?<url>' . $np . '?)',
+      '(',
+        '\s?',
+        '\"(?<title>' . $np . '?)\"',
+      ')?',
+    '\))',
+    '|',
+    '(\[(?<ref>' . $np . '?)\])',
+  ')(\{.*?\})?',
+)));
+
+module_load_include('inc', 'drupdown', 'includes/drupdown.ui');
+module_load_include('inc', 'drupdown', 'includes/drupdown.patterns');
+
+/**
+ * Implements hook_menu().
+ */
+function drupdown_menu() {
+  return array(
+    'drupdown/playground' => array(
+      'title' => 'Drupdown Playground',
+      'page callback' => 'drupal_get_form',
+      'page arguments' => array('drupdown_playground'),
+      'access callback' => TRUE,
+      'file' => 'includes/drupdown.pages.inc',
+      'type' => MENU_CALLBACK,
+    ),
+    'drupdown/ajax-embed' => array(
+      'title' => 'Drupdown Ajax Callback',
+      'page callback' => 'drupdown_ajax',
+      'access callback' => TRUE,
+      'type' => MENU_CALLBACK,
+    ),
+    'admin/config/content/drupdown' => array(
+      'title' => 'Drupdown',
+      'description' => 'Configure drupdown basics.',
+      'page callback' => 'drupal_get_form',
+      'page arguments' => array('drupdown_settings_form'),
+      'file' => 'includes/drupdown.pages.inc',
+      'access arguments' => array('administer site configuration'),
+    ),
+  );
+}
+
+/**
+ * Ajax callback to deliver inline html for embeddables.
+ */
+function drupdown_ajax() {
+  $info['url'] = $_GET['url'];
+  drupdown_match_pattern($info);
+  $doc = str_get_html($info['content']);
+  $fixed_elements = $doc->find('[width]');
+  foreach ($fixed_elements as $elem) {
+    $width = intval($elem->width);
+    $height = intval($elem->height);
+    unset($elem->width);
+    unset($elem->height);
+    $elem->{'data-aspect-ratio'} = $width / $height;
+  }
+  print $doc->save();
+}
+
+/**
+ * Implements hook_init().
+ */
+function drupdown_init() {
+  /*
+  if (module_exists('colorbox') && _colorbox_active()) {
+    drupal_add_js(drupal_get_path('module', 'drupdown') . '/js/drupdown-colorbox.js');
+  }
+  */
+  drupal_add_js(drupal_get_path('module', 'drupdown') . '/js/drupdown-ratio.js');
+  drupal_add_css(drupal_get_path('module', 'drupdown') . '/css/drupdown.theme.css');
+  drupal_add_css(drupal_get_path('module', 'drupdown') . '/css/drupdown.admin.css');
+  $zeropath = libraries_get_path('ZeroClipboard');
+  $settings = array();
+  if (file_exists($zeropath . '/ZeroClipboard.js')) {
+    $settings['ZeroClipboardPath'] = file_create_url($zeropath . '/ZeroClipboard.swf');
+  }
+  if (module_exists('codemirror')) {
+    $embeds = variable_get('drupdown_codemirror_embeds', array());
+    $languages = codemirror_languages();
+    $aliases = array();
+    foreach ($embeds as $mime) {
+      if ($mime) {
+        $aliases[$languages[$mime]['mode']] = $mime;
+      }
+    }
+    $settings['codemirror'] = $aliases;
+  }
+  drupal_add_js(array('drupdown' => $settings), 'setting');
+}
+
+/**
+ * Implements hook_filter_info().
+ */
+function drupdown_filter_info() {
+  $filters['filter_drupdown_pre'] = array(
+    'title' => t('Drupdown Pre'),
+    'description' => t('Preprocess Markdown.'),
+    'process callback' => '_filter_drupdown_pre',
+    'default settings' => array('styles' => array()),
+  );
+  $filters['filter_drupdown_markdown'] = array(
+    'title' => t('Drupdown Markdown'),
+    'description' => t('Process Markdown.'),
+    'process callback' => '_filter_drupdown_markdown',
+    'default settings' => array('styles' => array()),
+  );
+  $filters['filter_drupdown_post'] = array(
+    'title' => t('Drupdown Post'),
+    'description' => t('Postprocess Markdown.'),
+    'process callback' => '_filter_drupdown_post',
+    'default settings' => array('styles' => array()),
+  );
+  return $filters;
+}
+
+/**
+ * Implements hook_theme().
+ */
+function drupdown_theme() {
+  $path = drupal_get_path('module', 'drupdown') . '/templates';
+  return array(
+    'drupdown_figure' => array(
+      'variables' => array(
+        'content' => FALSE,
+        'caption' => FALSE,
+        'types' => array(),
+        'domid' => FALSE,
+        'classes' => array(),
+      ),
+      'path' => $path,
+      'template' => 'drupdown-figure',
+    ),
+    'drupdown_figure_group' => array(
+      'variables' => array(
+        'figures' => array(),
+      ),
+      'path' => $path,
+      'template' => 'drupdown-figure-group',
+    ),
+    'drupdown_link_embed' => array(
+      'variables' => array(
+        'title' => '',
+        'image' => FALSE,
+        'description' => FALSE,
+        'url' => FALSE,
+        'domain' => FALSE,
+      ),
+      'path' => $path,
+      'template' => 'drupdown-link-embed',
+    ),
+  );
+}
+
+/**
+ * Implements template_preprocess_HOOK().
+ */
+function template_preprocess_drupdown_figure(&$variables) {
+  foreach ($variables['classes'] as $class) {
+    $variables['classes_array'][] = $class;
+  }
+  foreach ($variables['types'] as $type) {
+    $variables['classes_array'][] = 'drupdown-' . $type;
+  }
+  if (empty($variables['caption'])) {
+    $variables['classes_array'][] = 'drupdown-nocaption';
+  }
+}
+
+/**
+ * Parse markdown.
+ */
+function _filter_drupdown_markdown($text, $format) {
+  require_once libraries_get_path('php-markdown') . '/markdown.php';
+  return Markdown($text);
+}
+
+/**
+ * Drupdown pre filter.
+ */
+function _filter_drupdown_pre($text, $format) {
+  // Append newline. Safety first!
+  $text .= "\n";
+  // Search for language islands.
+  $text = preg_replace('/\[(.+?)\]\(([a-z]+)\)/', '<span lang="$2">$1</span>', $text);
+
+  // Newlines are also added if line ends with ., :, ;, ! or ?.
+  $text = preg_replace('/(?=(\s+)|[.:;!?])\n/', "  \n", $text);
+
+  // If there is a level 1 headline, increase all headlines levels.
+  if (preg_match("/^#\s*[^#]/m", $text) || preg_match("/[^\n]+\n===+\n/m", $text)) {
+    $text = preg_replace("/^#+/m", "$0#", $text);
+    $text = preg_replace("/^([^\s]*)\n(---+)/m", "### $1", $text);
+    $text = preg_replace("/^([^\s]*)\n(===+)/m", "$1\n---", $text);
+  }
+
+  // Switch ``` fenced code blocks syntax to ~~~.
+  $text = preg_replace_callback('/^[`|~]{3,}\h*(.*)?/m', '_drupdown_fenced_codeblocks', $text);
+
+  // Automatically add newlines before and after something that looks like
+  // a list.
+  $text = preg_replace('/^(\s*(\d+\.|\+|\*|\-).*\\n){2,}/xm', "\n$0\n", $text);
+
+  // Streamline links. Embeds will be added automatically based on their line
+  // position.
+  $text = preg_replace('/\!\[/', '[', $text);
+
+  // Search for embeds and group them.
+  $grouping_regex = '/(\n|^)((' . DRUPDOWN_LINK_REGEX . ' *)\n)+/';
+  $text = preg_replace_callback($grouping_regex, '_drupdown_group_embeds', $text);
+  return $text;
+}
+
+/**
+ * Process codeblock delimiters like ``` or ~~~.
+ */
+function _drupdown_fenced_codeblocks($matches) {
+  return '~~~ ' . str_replace('/', '__', str_replace('-', '_', $matches[1]));
+}
+
+/**
+ * Callback for embed grouping.
+ */
+function _drupdown_group_embeds($matches) {
+  $links = explode("\n", trim($matches[0]));
+  $figures = array();
+  $grouping = TRUE;
+  array_walk($links, 'trim');
+  foreach ($links as $link) {
+    $info = array(
+      'url' => preg_replace('/.*?((_||[a-z])+\:\/\/[^ |\)]+).*/', '$1', $link, 1),
+      'alt' => '',
+      'title' => '',
+    );
+    drupdown_match_pattern($info);
+    if ($info['figure']) {
+      $grouping = TRUE && $grouping;
+      $figures[] = '<div class="drupdown-figure" markdown="1">' . $link . '</div>';
+    }
+    else {
+      $grouping = FALSE;
+      $figures[] = $link;
+    }
+  }
+  if (count($figures) > 1 && $grouping) {
+    return "\n" . theme('drupdown_figure_group', array('figures' => $figures)) . "\n\n";
+  }
+  else {
+    return "\n" . implode('', $figures) . "  \n";
+  }
+}
+
+/**
+ * Drupdown post filter.
+ */
+function _filter_drupdown_post($text, $format) {
+  $doc = new simple_html_dom();
+  $doc->load($text);
+
+  // Process figure embeds.
+  $figures = $doc->find('.drupdown-figure');
+  foreach ($figures as $figure) {
+    $link = $figure->find('a', 0);
+    if (!$link) {
+      continue;
+    }
+    $info = array(
+      'url' => $link->href,
+      'alt' => $link->innertext,
+      'title' => $link->title,
+    );
+    if (drupdown_match_pattern($info) && array_key_exists('content', $info)) {
+      if (!in_array('link', $info['types'])) {
+        $theme_hook = array('drupdown_figure');
+        foreach ($info['types'] as $type) {
+          $theme_hook[] = $type;
+        }
+        $content = theme(implode('__', $theme_hook), array(
+          'content' => $info['content'],
+          'caption' => $info['title'],
+          'types' => $info['types'],
+          'domid' => $link->id,
+          'classes' => explode(' ', $link->class),
+        ));
+        $figure->outertext = $content;
+      }
+    }
+    else {
+      $figure->innertext = '<p class="drupdown-broken-link">' . $link->innertext . '</p>';
+    }
+  }
+
+  $doc = str_get_html($doc->save());
+
+  $links = $doc->find('a');
+  foreach ($links as $link) {
+    if ($link->rel == 'footnote' || $link->rev == 'footnote' || preg_match('/drupdown\-processed/', $link->class)) {
+      continue;
+    }
+    $info = array(
+      'url' => $link->href,
+      'alt' => $link->innertext,
+      'title' => $link->title,
+    );
+    if (drupdown_match_pattern($info)) {
+      if (!$link->title) {
+        $link->title = $info['title'];
+      }
+      $classes = array($link->class, 'drupdown-inline');
+      if (!$link->title) {
+        $classes[] = 'drupdown-no-title';
+      }
+      foreach ($info['types'] as $type) {
+        $classes[] = 'drupdown-' . $type;
+      }
+      $link->class = trim(implode(' ', $classes));
+      $link->href = $info['url'];
+    }
+    else {
+      $link->outertext = '<span class="drupdown-broken-link">' . $link->innertext . '</span>';
+    }
+  }
+
+  // Replace with javascript.
+  $fixed_elements = $doc->find('[width]');
+  foreach ($fixed_elements as $elem) {
+    $width = intval($elem->width);
+    $height = intval($elem->height);
+    unset($elem->width);
+    unset($elem->height);
+    $elem->{'data-aspect-ratio'} = $width / $height;
+  }
+
+  // Process codeblocks.
+  $codeblocks = $doc->find('code');
+  foreach ($codeblocks as $code) {
+    $mime = str_replace('_', '-', str_replace('__', '/', $code->class));
+    if (strlen($mime) > 0) {
+      $code->outertext = '<code data-mime="' . $mime . '" class="' . $code->class . '">' . $code->innertext . '</code>';
+    }
+  }
+  $text = $doc->save();
+  $doc->clear();
+  return $text;
+}
+
+/**
+ * Implements hook_codemirror_languages_alter().
+ */
+function drupdown_codemirror_languages_alter(&$languages) {
+  $mod = file_create_url(drupal_get_path('module', 'drupdown') . '/codemirror');
+  $languages['text/x-drupdown'] = array(
+    'uri' => $mod . '/drupdown.js',
+    'mode' => 'drupdown',
+    'name' => t('Drupdown'),
+    'js' => array(
+      file_create_url($mod . '/drupdown.commands.js'),
+    ),
+    'css' => array(),
+  );
+}
